@@ -3,6 +3,7 @@ package qemu
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -33,6 +34,9 @@ type Driver interface {
 
 	// Qemu executes the given command via qemu-img
 	QemuImg(...string) error
+
+	// GetImageFormat runs `qemu-image info <image>` and returns the format of the given image
+	GetImageFormat(imagePath string) (string, error)
 
 	// Verify checks to make sure that this driver should function
 	// properly. If there is any indication the driver can't function,
@@ -197,6 +201,40 @@ func (d *QemuDriver) Version() (string, error) {
 
 	log.Printf("Qemu version: %s", matches[0])
 	return matches[0], nil
+}
+
+func (d *QemuDriver) GetImageFormat(imagePath string) (string, error) {
+	var stdout, stderr bytes.Buffer
+
+	args := []string{
+		"info",
+		"--output",
+		"json",
+		imagePath,
+	}
+
+	log.Printf("Executing qemu-img: %#v", args)
+	cmd := exec.Command(d.QemuImgPath, args...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	log.Printf("stdout: %s", stdout.String())
+	log.Printf("stderr: %s", stderr.String())
+
+	if err != nil {
+		return "", err
+	}
+
+	var imageFormat struct {
+		Format string `json:"format"`
+	}
+	err = json.Unmarshal(stdout.Bytes(), &imageFormat)
+	if err != nil {
+		return "", err
+	}
+
+	return imageFormat.Format, nil
 }
 
 func logReader(name string, r io.Reader) {
